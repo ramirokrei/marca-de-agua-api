@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
 from PIL import Image
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
@@ -7,36 +7,28 @@ import json
 
 app = Flask(__name__)
 
-# Cargar credenciales desde una variable de entorno en Render
+# Obtener las credenciales de la variable de entorno
 google_credentials_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
 
 if not google_credentials_json:
     print("❌ ERROR: No se encontraron las credenciales de Google en las variables de entorno.")
-    exit(1)  # Termina la ejecución si no hay credenciales
+    exit(1)
 
-# Guardar las credenciales en un archivo temporal para PyDrive
-credenciales_path = "/tmp/credentials.json"  # Ruta temporal en el servidor
+# Guardar las credenciales en un archivo temporal
+credenciales_path = "/tmp/client_secrets.json"
 with open(credenciales_path, "w") as cred_file:
     cred_file.write(google_credentials_json)
 
-# Autenticación con Google Drive
+# Configurar la autenticación de PyDrive
 gauth = GoogleAuth()
-gauth.LoadCredentialsFile(credenciales_path)  # Cargar credenciales desde el archivo
+gauth.LoadClientConfigFile(credenciales_path)  # Carga la configuración de cliente
 
-if gauth.credentials is None:
-    print("❌ ERROR: No se pudo cargar las credenciales correctamente.")
-    exit(1)
-elif gauth.access_token_expired:
-    gauth.Refresh()
-else:
-    gauth.Authorize()
+# Autenticación manual (debe hacerse al menos una vez localmente)
+gauth.LocalWebserverAuth() 
 
-gauth.SaveCredentialsFile(credenciales_path)  # Guardar credenciales para evitar login repetido
+# Guardar credenciales después de la autenticación
+gauth.SaveCredentialsFile("/tmp/credentials.json")
 drive = GoogleDrive(gauth)
-
-# ID de las carpetas en Google Drive
-carpeta_entrada_id = "1kz0A-9fYZ6kXKtJubjXBYb7OjQnePZ2m"  # Reemplaza con tu carpeta de entrada
-carpeta_salida_id = "1k6OuxdkS5SHPJo1LoqEjK9-zwog7Zeui"  # Reemplaza con tu carpeta de salida
 
 # Ruta de prueba para saber si el servicio funciona
 @app.route("/", methods=["GET"])
@@ -45,3 +37,4 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
