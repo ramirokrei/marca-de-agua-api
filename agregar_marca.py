@@ -3,6 +3,7 @@ from PIL import Image
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
 import os
+import json
 from io import BytesIO
 
 app = Flask(__name__)
@@ -10,8 +11,15 @@ app = Flask(__name__)
 # Autenticación con Google Drive
 gauth = GoogleAuth()
 
-# Carga de credenciales y autenticación con Google
-gauth.LoadCredentialsFile("credentials.json")  # Asegúrate de haber subido el archivo credentials.json
+# Cargar las credenciales desde la variable de entorno
+google_credentials_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+if not google_credentials_json:
+    return jsonify({"error": "No se encontraron las credenciales de Google."}), 400
+
+# Convertir el contenido JSON en un objeto de credenciales
+credentials_info = json.loads(google_credentials_json)
+gauth.credentials = GoogleAuth._load_credentials_from_info(credentials_info)
+
 if gauth.credentials is None:
     gauth.LocalWebserverAuth()  # Usado solo en tu máquina local
 elif gauth.access_token_expired:
@@ -92,3 +100,4 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
