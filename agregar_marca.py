@@ -14,7 +14,10 @@ gauth = GoogleAuth()
 # Cargar las credenciales desde la variable de entorno
 google_credentials_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
 if not google_credentials_json:
-    return jsonify({"error": "No se encontraron las credenciales de Google."}), 400
+    # Verificar si las credenciales están en la variable de entorno
+    print("Error: No se encontraron las credenciales de Google.")
+    # Aquí no es correcto retornar, debemos continuar el flujo
+    exit(1)  # Salir si no se encuentran las credenciales
 
 # Convertir el contenido JSON en un objeto de credenciales
 credentials_info = json.loads(google_credentials_json)
@@ -57,47 +60,4 @@ def agregar_marca_de_agua(imagen, salida_path):
 @app.route("/procesar", methods=["POST"])
 def procesar_imagen():
     # Buscar las imágenes en la carpeta de entrada
-    file_list = drive.ListFile({'q': f"'{carpeta_entrada_id}' in parents and trashed=false"}).GetList()
-
-    if not file_list:
-        return jsonify({"error": "No se encontraron archivos en la carpeta de entrada"}), 400
-
-    for archivo in file_list:
-        print(f"Imagen encontrada: {archivo['title']}")
-
-        # Descargar la imagen desde Google Drive
-        archivo.GetContentFile(archivo['title'])
-
-        # Abrir la imagen
-        imagen = Image.open(archivo['title'])
-
-        # Definir la ruta de salida temporal
-        salida_path = f"procesadas/{archivo['title']}"
-
-        # Aplicar la marca de agua
-        agregar_marca_de_agua(imagen, salida_path)
-
-        # Subir la imagen procesada a Google Drive
-        archivo_drive = drive.CreateFile({'title': archivo['title'], 'parents': [{'id': carpeta_salida_id}]})
-        archivo_drive.SetContentFile(salida_path)
-        archivo_drive.Upload()
-
-        # Eliminar el archivo temporal después de subirlo
-        os.remove(salida_path)
-
-        # Obtener la URL pública del archivo en Drive
-        archivo_drive.InsertPermission({'type': 'anyone', 'value': 'anyone', 'role': 'reader'})
-        url_drive = f"https://drive.google.com/uc?id={archivo_drive['id']}"
-
-        print(f"✅ Imagen procesada y subida con éxito: {url_drive}")
-
-    return jsonify({"mensaje": "Todas las imágenes fueron procesadas y subidas con éxito!"})
-
-# Ruta para verificar que la API funciona
-@app.route("/", methods=["GET"])
-def home():
-    return "🚀 API de marca de agua funcionando correctamente!"
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
-
+    file_list = drive
