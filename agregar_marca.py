@@ -1,68 +1,94 @@
+from flask import Flask, request, jsonify, send_file
 from PIL import Image
-import os
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
+import os
+from io import BytesIO
 
-# Configuración de carpetas
-carpeta_entrada = "imagenes/"  # Carpeta donde están las imágenes originales
-carpeta_salida = "procesadas/"  # Carpeta donde se guardarán las imágenes con la marca de agua
-
-# Asegurar que la carpeta de salida exista
-if not os.path.exists(carpeta_salida):
-    os.makedirs(carpeta_salida)
-
-# Agregar marca de agua a cada imagen
-def agregar_marca_de_agua(imagen_path, salida_path):
-    # Abrir la imagen original
-    imagen = Image.open(imagen_path).convert("RGBA")
-    ancho, alto = imagen.size
-
-    # Cargar la imagen de la marca de agua
-    watermark = Image.open("watermark.png")
-    watermark = watermark.convert("RGBA")  # Asegúrate de que la marca de agua tenga transparencia
-
-    # Redimensionar la marca de agua si es necesario
-    watermark = watermark.resize((int(ancho / 5), int(alto / 5)))  # Redimensionar la marca de agua (ajustar según sea necesario)
-
-    # Obtener las dimensiones de la imagen de la marca de agua
-    watermark_width, watermark_height = watermark.size
-
-    # Definir la posición donde quieres colocar la marca de agua (por ejemplo, en la esquina inferior derecha)
-    posicion = (ancho - watermark_width - 10, alto - watermark_height - 10)  # Ajusta las coordenadas según lo desees
-
-    # Añadir la marca de agua a la imagen original
-    imagen.paste(watermark, posicion, watermark)  # Usa watermark como máscara para conservar la transparencia
-
-    # Guardar la imagen con la marca de agua
-    imagen.save(salida_path)
-    print(f"✅ Marca de agua aplicada: {salida_path}")
-
-# Procesar todas las imágenes en la carpeta de entrada
-for archivo in os.listdir(carpeta_entrada):
-    if archivo.endswith((".jpg", ".png", ".jpeg")):
-        ruta_entrada = os.path.join(carpeta_entrada, archivo)
-        ruta_salida = os.path.join(carpeta_salida, archivo)
-        agregar_marca_de_agua(ruta_entrada, ruta_salida)
-
-print("✅ Todas las imágenes han sido procesadas con la marca de agua.")
-
-# ---------------------- SUBIDA A GOOGLE DRIVE ----------------------
+app = Flask(__name__)
 
 # Autenticación con Google Drive
 gauth = GoogleAuth()
-gauth.LocalWebserverAuth()
+
+# Carga de credenciales y autenticación con Google
+gauth.LoadCredentialsFile("credentials.json")  # Asegúrate de haber subido el archivo credentials.json
+if gauth.credentials is None:
+    gauth.LocalWebserverAuth()  # Usado solo en tu máquina local
+elif gauth.access_token_expired:
+    gauth.Refresh()
+else:
+    gauth.Authorize()
+
+gauth.SaveCredentialsFile("credentials.json")
 drive = GoogleDrive(gauth)
 
-# ID de la carpeta de Google Drive donde quieres subir las imágenes
-drive_folder_id = "1k6OuxdkS5SHPJo1LoqEjK9-zwog7Zeui"  # Reemplaza con tu carpeta de Drive
+# ID de la carpeta de Google Drive donde están las imágenes originales y donde se subirán las procesadas
+carpeta_entrada_id = "1kz0A-9fYZ6kXKtJubjXBYb7OjQnePZ2m"  # Reemplaza con el ID de la carpeta de entrada
+carpeta_salida_id = "1k6OuxdkS5SHPJo1LoqEjK9-zwog7Zeui"  # Reemplaza con el ID de la carpeta de salida
 
-# Subir cada imagen procesada a Google Drive
-for archivo in os.listdir(carpeta_salida):
-    if archivo.endswith((".jpg", ".png", ".jpeg")):
-        archivo_drive = drive.CreateFile({'title': archivo, 'parents': [{'id': drive_folder_id}]})
-        archivo_drive.SetContentFile(os.path.join(carpeta_salida, archivo))
+# Función para aplicar la marca de agua
+def agregar_marca_de_agua(imagen, salida_path):
+    imagen = imagen.convert("RGBA")
+    ancho, alto = imagen.size
+
+    # Cargar la imagen de la marca de agua
+    watermark = Image.open("watermark.png").convert("RGBA")
+    watermark = watermark.resize((int(ancho / 5), int(alto / 5)))  # Redimensionar
+
+    # Posición en la esquina inferior derecha
+    posicion = (ancho - watermark.size[0] - 10, alto - watermark.size[1] - 10)
+
+    # Aplicar la marca de agua
+    imagen.paste(watermark, posicion, watermark)
+
+    # Guardar en un archivo temporal
+    imagen.save(salida_path)
+    return salida_path
+
+# Ruta para procesar las imágenes de la carpeta de Google Drive
+@app.route("/procesar", methods=["POST"])
+def procesar_imagen():
+    # Buscar las imágenes en la carpeta de entrada
+    file_list = drive.ListFile({'q': f"'{carpeta_entrada_id}' in parents and trashed=false"}).GetList()
+
+    if not file_list:
+        return jsonify({"error": "No se encontraron archivos en la carpeta de entrada"}), 400
+
+    for archivo in file_list:
+        print(f"Imagen encontrada: {archivo['title']}")
+
+        # Descargar la imagen desde Google Drive
+        archivo.GetContentFile(archivo['title'])
+
+        # Abrir la imagen
+        imagen = Image.open(archivo['title'])
+
+        # Definir la ruta de salida temporal
+        salida_path = f"procesadas/{archivo['title']}"
+
+        # Aplicar la marca de agua
+        agregar_marca_de_agua(imagen, salida_path)
+
+        # Subir la imagen procesada a Google Drive
+        archivo_drive = drive.CreateFile({'title': archivo['title'], 'parents': [{'id': carpeta_salida_id}]})
+        archivo_drive.SetContentFile(salida_path)
         archivo_drive.Upload()
-        print(f"✅ Imagen subida: {archivo}")
 
-print("🚀 ¡Todas las imágenes fueron subidas a Google Drive!")
+        # Eliminar el archivo temporal después de subirlo
+        os.remove(salida_path)
 
+        # Obtener la URL pública del archivo en Drive
+        archivo_drive.InsertPermission({'type': 'anyone', 'value': 'anyone', 'role': 'reader'})
+        url_drive = f"https://drive.google.com/uc?id={archivo_drive['id']}"
+
+        print(f"✅ Imagen procesada y subida con éxito: {url_drive}")
+
+    return jsonify({"mensaje": "Todas las imágenes fueron procesadas y subidas con éxito!"})
+
+# Ruta para verificar que la API funciona
+@app.route("/", methods=["GET"])
+def home():
+    return "🚀 API de marca de agua funcionando correctamente!"
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
