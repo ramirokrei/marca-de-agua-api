@@ -7,7 +7,7 @@ import json
 
 app = Flask(__name__)
 
-# Obtener las credenciales de la variable de entorno
+# Obtener las credenciales desde la variable de entorno en Render
 google_credentials_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
 
 if not google_credentials_json:
@@ -19,22 +19,27 @@ credenciales_path = "/tmp/client_secrets.json"
 with open(credenciales_path, "w") as cred_file:
     cred_file.write(google_credentials_json)
 
-# Configurar la autenticación de PyDrive
+# Configurar la autenticación con Google Drive sin navegador
 gauth = GoogleAuth()
-gauth.LoadClientConfigFile(credenciales_path)  # Carga la configuración de cliente
+gauth.LoadClientConfigFile(credenciales_path)
 
-# Autenticación manual (debe hacerse al menos una vez localmente)
-gauth.LocalWebserverAuth() 
+# Cargar credenciales desde el archivo si existen
+credenciales_guardadas = "/tmp/credentials.json"
+if os.path.exists(credenciales_guardadas):
+    gauth.LoadCredentialsFile(credenciales_guardadas)
 
-# Guardar credenciales después de la autenticación
-gauth.SaveCredentialsFile("/tmp/credentials.json")
+# Si las credenciales están vencidas o no existen, autenticamos con Refresh
+if gauth.credentials is None or gauth.access_token_expired:
+    gauth.LocalWebserverAuth()  # ❌ NO USAR EN RENDER, CAMBIAMOS POR:
+    gauth.CommandLineAuth()     # ✅ AUTENTICACIÓN SIN NAVEGADOR
+
+# Guardamos credenciales para futuros accesos
+gauth.SaveCredentialsFile(credenciales_guardadas)
 drive = GoogleDrive(gauth)
 
-# Ruta de prueba para saber si el servicio funciona
 @app.route("/", methods=["GET"])
 def home():
     return "🚀 API de marca de agua funcionando correctamente!"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
